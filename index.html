@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stack Tower</title>
+<style>
+:root{--bg:#1b1f3b;--fg:#fff;--panel:rgba(15,18,40,.82);--accent:#ffd166;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#12142b;--fg:#fff;--panel:rgba(10,12,30,.85)}}
+:root[data-theme="dark"]{--bg:#12142b;--fg:#fff;--panel:rgba(10,12,30,.85)}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+body{position:relative}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#ui{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+#panel{background:var(--panel);color:var(--fg);border-radius:20px;padding:24px 28px;text-align:center;pointer-events:auto;max-width:80%;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+#panel.hide{display:none}
+h1{margin:0 0 8px;font-size:30px}
+p{margin:6px 0 14px;opacity:.85;line-height:1.4}
+button{font:inherit;font-weight:700;border:0;border-radius:12px;padding:12px 22px;margin:4px;background:var(--accent);color:#1b1f3b;cursor:pointer}
+button.alt{background:#fff;color:#1b1f3b}
+#panel.full{width:100%;height:100%;max-width:none;border-radius:0;box-shadow:none;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow-y:auto;background:linear-gradient(160deg,#2b2f7a,#12142b);color:#fff}
+#panel.full h1{font-size:42px;margin-bottom:12px}
+#panel.full button{font-size:20px;min-width:200px;margin:8px}
+#panel.full{justify-content:safe center}
+.hs{background:var(--accent);color:#1b1f3b;font-weight:800;border-radius:999px;padding:6px 18px;margin:4px 0 12px;font-size:18px}
+#panel.full h3{margin:10px 0 0;font-size:18px;opacity:.85}
+#panel.full ol{width:min(320px,86%)}
+#panel.full li{padding:5px 8px}
+li.hi{background:var(--accent);color:#1b1f3b;border-radius:8px;border-bottom-color:transparent}
+li.hi span,li.hi::before{opacity:.8}
+input{font:inherit;padding:10px 12px;border-radius:10px;border:0;width:130px;margin:4px}
+li i{font-style:normal;flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+li b{font-weight:800}
+#splash{position:absolute;inset:0;z-index:10;background:#0c1430;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .6s}
+#splash.out{opacity:0}
+#splash svg{width:min(60vw,240px);height:auto;animation:pop 1.2s ease-out both}
+#bar{width:min(60vw,240px);height:6px;border-radius:3px;background:rgba(255,255,255,.18);margin-top:32px;overflow:hidden}
+#bar i{display:block;height:100%;background:#e9b53f;animation:fill 10s linear forwards}
+@keyframes pop{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:scale(1)}}
+@keyframes fill{from{width:0}to{width:100%}}
+ol{list-style:none;counter-reset:r;padding:0;margin:6px 0 14px;min-width:210px}
+li{counter-increment:r;display:flex;justify-content:space-between;gap:16px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.12);font-weight:700}
+li::before{content:counter(r) ".";opacity:.6;width:24px;text-align:left}
+li span{opacity:.6;font-weight:400;font-size:13px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="splash"><svg viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg"><rect width="1080" height="1080" rx="215" fill="#162949"/><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M215 893L450 247L684 893M335 675H590" stroke="#e9b53f" stroke-width="95"/><path d="M567 252H745C880 252 925 330 925 425C925 520 880 594 745 594H567M700 594L953 893" stroke="#fff" stroke-width="90"/></g></svg><div id="bar"><i></i></div></div>
+<div id="ui"><div id="panel"></div></div>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),panel=document.getElementById('panel');
+let W,H,BH=28,scores=[],canRevive=true,runId=0,named=false,qual=false,lastName='',blocks,cur,dir,speed,debris,state='ready',score,best=0,cam,camT,flash,baseW,msg,msgT,ac;
+try{best=+localStorage.getItem('stack-best')||0;lastName=localStorage.getItem('stack-name')||'';scores=JSON.parse(localStorage.getItem('stack-top')||'[]')}catch(e){}
+function resize(){const d=window.devicePixelRatio||1;W=cv.clientWidth;H=cv.clientHeight;cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0)}
+addEventListener('resize',resize);resize();
+function beep(f,t){try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;o.type='triangle';g.gain.setValueAtTime(.15,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+t);o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+t)}catch(e){}}
+function spawn(){const p=blocks[blocks.length-1],left=blocks.length%2===0;cur={x:left?-p.w*.4:W-p.w*.6,w:p.w};dir=left?1:-1}
+function reset(){named=false;canRevive=true;runId=Date.now();baseW=Math.min(240,W*.62);blocks=[{x:(W-baseW)/2,w:baseW}];score=0;debris=[];cam=0;camT=0;speed=2.4;flash=0;msgT=0;spawn();state='play';panel.className='hide'}
+function over(){state='over';if(score>best)best=score;const old=scores.find(x=>x.id===runId);qual=false;if(score>0){scores=scores.filter(x=>x.id!==runId);scores.push({s:score,id:runId,d:new Date().toLocaleDateString(),n:old?old.n:''});scores.sort((a,b)=>b.s-a.s);scores=scores.slice(0,10);qual=scores.some(x=>x.id===runId)}try{localStorage.setItem('stack-best',best);localStorage.setItem('stack-top',JSON.stringify(scores))}catch(e){}beep(120,.4);showPanel('over')}
+// Real AdMob rewarded ad (works inside the Capacitor app). On the web it falls back to the fake countdown.
+// Keep AD_TEST=true while testing; set it to false only for the final release build.
+const AD_ID_LIVE='ca-app-pub-5059428712375364/8263850353',AD_ID_TEST='ca-app-pub-3940256099942544/5224354917',AD_TEST=true;
+let adInit=false,adOk=false;
+async function playAd(){
+const A=window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins.AdMob;
+if(!A)return fakeAd();
+panel.innerHTML='<h1>Ad</h1><p>Loading…</p>';
+try{
+if(!adInit){await A.initialize();A.addListener('onRewardedVideoAdReward',()=>{adOk=true});A.addListener('onRewardedVideoAdDismissed',()=>{const ok=adOk;adOk=false;ok?revive():showPanel('over')});adInit=true}
+await A.prepareRewardVideoAd({adId:AD_TEST?AD_ID_TEST:AD_ID_LIVE});
+await A.showRewardVideoAd()
+}catch(e){showPanel('over')}}
+function fakeAd(){let n=5;panel.innerHTML='<h1>Ad</h1><p>Your ad plays here.<br>Continue in <b id="n">5</b>s</p>';const t=setInterval(()=>{n--;const e=document.getElementById('n');if(e)e.textContent=n;if(n<=0){clearInterval(t);revive()}},1000)}
+function revive(){canRevive=false;state='play';panel.className='hide';spawn()}
+function showPanel(v){v=v||state;panel.className=v==='over'?'':'full';
+const b=(id,t,c)=>'<button'+(c?' class="alt"':'')+' id="'+id+'">'+t+'</button>';
+const esc=s=>String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');const nmBlock=v==='over'&&qual&&!named?'<p>🏆 Top 10! Add your name:</p><input id="nm" maxlength="12" placeholder="Your name" value="'+esc(lastName)+'"><button id="sv">Save</button>':'';
+const lst=scores.length?'<ol>'+scores.map((x,i)=>'<li'+(i===0?' class="hi"':'')+'><i>'+esc(x.n||'Player')+'</i><b>'+x.s+'</b></li>').join('')+'</ol>':'<p>No scores yet. Be the first!</p>';
+if(v==='ready')panel.innerHTML='<h1>🗼 Stack Tower</h1>'+b('go','Play')+'<div class="hs">🏆 High score: '+best+'</div><h3>Top 10</h3>'+lst;
+else if(v==='top')panel.innerHTML='<h1>Top 10</h1>'+(scores.length?'<ol>'+scores.map(x=>'<li>'+x.s+'<span>'+x.d+'</span></li>').join('')+'</ol>':'<p>No scores yet.</p>')+b('back','Back');
+else panel.innerHTML='<h1>Game over</h1><p>Score: <b>'+score+'</b> · High score: <b>'+best+'</b></p>'+nmBlock+(canRevive?b('ad','▶ Watch ad to continue'):'')+b('go','Play again')+b('home','Home',1)+b('sh','Share',1);
+const on=(id,f)=>{const e=document.getElementById(id);if(e)e.onclick=x=>{x.stopPropagation();f(e)}};
+on('go',reset);on('top',()=>showPanel('top'));on('back',()=>showPanel('ready'));on('home',()=>{state='ready';showPanel('ready')});on('ad',playAd);on('sv',()=>{const nv=document.getElementById('nm').value.trim().slice(0,12)||'Player';lastName=nv;named=true;const r=scores.find(x=>x.id===runId);if(r)r.n=nv;try{localStorage.setItem('stack-top',JSON.stringify(scores));localStorage.setItem('stack-name',nv)}catch(e){}showPanel('over')});
+on('sh',async s=>{const t='I stacked '+score+' blocks in Stack Tower! Can you beat me?';try{if(navigator.share)await navigator.share({text:t,url:location.href});else{await navigator.clipboard.writeText(t+' '+location.href);s.textContent='Copied!'}}catch(x){}})}
+function drop(){if(state!=='play')return;const p=blocks[blocks.length-1],l=Math.max(cur.x,p.x),r=Math.min(cur.x+cur.w,p.x+p.w),ov=r-l,n=blocks.length;
+if(ov<=0){debris.push({x:cur.x,w:cur.w,yw:n*BH,vy:0,vx:dir,h:n});return over()}
+let nx,nw;
+if(Math.abs(cur.x-p.x)<6){nx=p.x;nw=Math.min(baseW,p.w+4);flash=1;msg='PERFECT!';msgT=40;beep(880,.15)}
+else{nx=l;nw=ov;const pc=cur.x<p.x?{x:cur.x,w:p.x-cur.x}:{x:p.x+p.w,w:cur.x+cur.w-(p.x+p.w)};debris.push({x:pc.x,w:pc.w,yw:n*BH,vy:0,vx:dir*.5,h:n});beep(440+score*6,.1)}
+blocks.push({x:nx,w:nw});score++;speed=Math.min(2.4+score*.07,7.5);camT=Math.max(0,(blocks.length)*BH-H*.45);spawn()}
+function tap(e){if(e.target.closest('#panel'))return;e.preventDefault();drop()}
+addEventListener('pointerdown',tap);
+addEventListener('keydown',e=>{if(e.code==='Space'&&state==='play'){e.preventDefault();drop()}});
+function sy(yw){return H-110-yw+cam}
+function col(i,l){return 'hsl('+((i*12)%360)+',70%,'+(l||58)+'%)'}
+function frame(){
+if(state==='play'){cur.x+=dir*speed;if(cur.x<-cur.w*.4)dir=1;if(cur.x+cur.w>W+cur.w*.4)dir=-1}
+cam+=(camT-cam)*.1;
+for(const d of debris){d.vy+=.6;d.yw-=d.vy;d.x+=d.vx}
+debris=debris.filter(d=>sy(d.yw)<H+50);
+const g=ctx.createLinearGradient(0,0,0,H),h=(230+score*3)%360;
+g.addColorStop(0,'hsl('+h+',55%,30%)');g.addColorStop(1,'hsl('+((h+40)%360)+',60%,14%)');
+ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+blocks.forEach((b,i)=>{const y=sy((i+1)*BH);if(y<-BH||y>H)return;ctx.fillStyle=col(i);ctx.fillRect(b.x,y,b.w,BH-2);ctx.fillStyle='rgba(255,255,255,.25)';ctx.fillRect(b.x,y,b.w,5)});
+if(state==='play'){const i=blocks.length,y=sy((i+1)*BH);ctx.fillStyle=col(i);ctx.fillRect(cur.x,y,cur.w,BH-2);ctx.fillStyle='rgba(255,255,255,.25)';ctx.fillRect(cur.x,y,cur.w,5)}
+for(const d of debris){ctx.fillStyle=col(d.h,45);ctx.fillRect(d.x,sy(d.yw+BH),d.w,BH-2)}
+if(flash>0){ctx.fillStyle='rgba(255,255,255,'+flash*.3+')';ctx.fillRect(0,0,W,H);flash-=.08}
+ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 64px system-ui,sans-serif';ctx.fillText(score,W/2,90);
+if(msgT>0){msgT--;ctx.font='bold 26px system-ui,sans-serif';ctx.fillStyle='rgba(255,209,102,'+Math.min(1,msgT/20)+')';ctx.fillText(msg,W/2,130)}
+requestAnimationFrame(frame)}
+baseW=Math.min(240,W*.62);blocks=[{x:(W-baseW)/2,w:baseW}];score=0;debris=[];cam=0;camT=0;speed=2.4;flash=0;msgT=0;spawn();
+showPanel();frame();
+setTimeout(()=>{const s=document.getElementById('splash');s.classList.add('out');setTimeout(()=>s.remove(),600)},10000);
+</script>
+</body>
+</html>
