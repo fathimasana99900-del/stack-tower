@@ -1,0 +1,36 @@
+name: Release APK
+on: [workflow_dispatch]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p www && cp index.html www/ && sed -i 's/AD_TEST=true/AD_TEST=false/' www/index.html
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm install
+      - run: npx cap add android
+      - run: mkdir -p assets && cp icon-only-1.png assets/icon-only.png && cp icon-foreground-1.png assets/icon-foreground.png && cp icon-background-1.png assets/icon-background.png
+      - run: npx @capacitor/assets generate --android
+      - name: Add AdMob App ID
+        run: sed -i 's#</application>#<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-5059428712375364~5080825800"/></application>#' android/app/src/main/AndroidManifest.xml
+      - run: npx cap sync android
+      - run: cd android && chmod +x gradlew && ./gradlew assembleRelease
+      - name: Sign APK
+        env:
+          KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          echo "$KS_B64" | base64 -d > stacktower.jks
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          $BT/zipalign -p 4 android/app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
+          $BT/apksigner sign --ks stacktower.jks --ks-pass pass:"$KS_PASS" --key-pass pass:"$KS_PASS" --ks-key-alias stacktower --out StackTower-release.apk aligned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StackTower-RELEASE
+          path: StackTower-release.apk
